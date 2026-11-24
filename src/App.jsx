@@ -164,7 +164,7 @@ function App() {
     const onFocus = () => load();
     window.addEventListener("focus", onFocus);
     return () => { clearInterval(t); window.removeEventListener("focus", onFocus); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Adds one entry to a list using the latest copy in the database, so nothing sent meanwhile
   // (e.g. by WhatsApp) is overwritten.
