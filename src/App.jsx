@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { supabase } from "./supabaseClient";
+import AuthGate, { logOut } from "./AuthGate";
 
 const BLUE = "#1B4F8A";
 const LIGHT_BLUE = "#E8EFF8";
@@ -110,7 +112,11 @@ function fmtDate(d) { if (!d) return ""; const [y, m, day] = d.split("-"); retur
 const INIT_RM = () => Object.fromEntries(Object.keys(RM_NAMES).map(k => [k, 0]));
 const INIT_STOCK = () => Object.fromEntries(PRODUCTS.map(p => [p.code, 0]));
 
-export default function App() {
+export default function Root() {
+  return <AuthGate><App /></AuthGate>;
+}
+
+function App() {
   const [tab, setTab] = useState("dashboard");
   const [notification, setNotification] = useState(null);
 
@@ -123,33 +129,34 @@ export default function App() {
   const [expenses, setExpenses] = useState([]);
   const [incomes, setIncomes] = useState([]);
 
-  // ── Load from storage ──
+  // ── Load from the database (table factory_data: one row per list) ──
+  const [syncError, setSyncError] = useState("");
   useEffect(() => {
     async function load() {
-      try {
-        const keys = ["openingStock", "productionLog", "salesLog", "rmStock", "rmPurchases", "expenses", "incomes"];
-        for (const key of keys) {
-          try {
-            const r = await window.storage.get(key);
-            if (r) {
-              const val = JSON.parse(r.value);
-              if (key === "openingStock") setOpeningStock(val);
-              else if (key === "productionLog") setProductionLog(val);
-              else if (key === "salesLog") setSalesLog(val);
-              else if (key === "rmStock") setRmStock(val);
-              else if (key === "rmPurchases") setRmPurchases(val);
-              else if (key === "expenses") setExpenses(val);
-              else if (key === "incomes") setIncomes(val);
-            }
-          } catch {}
-        }
-      } catch {}
+      const { data, error } = await supabase.from("factory_data").select("key,value");
+      if (error) { setSyncError(`Couldn't load the data: ${error.message}`); return; }
+      for (const row of data || []) {
+        const val = row.value;
+        if (val === null || val === undefined) continue;
+        if (row.key === "openingStock") setOpeningStock(val);
+        else if (row.key === "productionLog") setProductionLog(val);
+        else if (row.key === "salesLog") setSalesLog(val);
+        else if (row.key === "rmStock") setRmStock(val);
+        else if (row.key === "rmPurchases") setRmPurchases(val);
+        else if (row.key === "expenses") setExpenses(val);
+        else if (row.key === "incomes") setIncomes(val);
+      }
     }
     load();
   }, []);
 
   async function save(key, val) {
-    try { await window.storage.set(key, JSON.stringify(val)); } catch {}
+    const { data: auth } = await supabase.auth.getSession();
+    const { error } = await supabase.from("factory_data").upsert({
+      key, value: val, updated_at: new Date().toISOString(), updated_by: auth?.session?.user?.email || null,
+    });
+    if (error) { setSyncError(`Not saved: ${error.message}`); notify(`Not saved: ${error.message}`, "error"); }
+    else setSyncError("");
   }
 
   function notify(msg, type = "success") {
@@ -337,7 +344,9 @@ export default function App() {
             ⚠️ {rmAlerts.length} Low Stock Alert{rmAlerts.length > 1 ? "s" : ""}
           </div>
         )}
+        <button onClick={logOut} style={{ marginLeft: rmAlerts.length > 0 ? 8 : "auto", background: "transparent", color: "#fff", border: "1px solid #fff8", borderRadius: 6, padding: "5px 9px", fontSize: 12, cursor: "pointer" }}>Log out</button>
       </div>
+      {syncError && <div style={{ background: LIGHT_RED, color: RED, padding: "8px 16px", fontSize: 13 }}>⚠️ {syncError}</div>}
 
       {/* Tabs */}
       <div style={{ background: "#fff", borderBottom: `3px solid ${BLUE}`, display: "flex", overflowX: "auto", gap: 0 }}>
