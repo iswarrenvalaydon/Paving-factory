@@ -140,6 +140,7 @@ function App() {
   const [rmPurchases, setRmPurchases] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [incomes, setIncomes] = useState([]);
+  const [breakdowns, setBreakdowns] = useState([]); // reported by WhatsApp (Hey Paving)
 
   // ── Load from the database (table factory_data: one row per list) ──
   const [syncError, setSyncError] = useState("");
@@ -157,6 +158,7 @@ function App() {
       else if (row.key === "rmPurchases") setRmPurchases(val);
       else if (row.key === "expenses") setExpenses(val);
       else if (row.key === "incomes") setIncomes(val);
+      else if (row.key === "breakdowns") setBreakdowns(val);
     }
   }
   useEffect(() => {
@@ -382,6 +384,28 @@ function App() {
             {statCard("Total Expenses", `Rs ${fmt(totalExpenses)}`, RED, LIGHT_RED, "📋")}
             {statCard("Net P&L", `Rs ${fmt(totalSalesValue + totalIncome - totalExpenses)}`, totalSalesValue + totalIncome - totalExpenses >= 0 ? GREEN : RED, totalSalesValue + totalIncome - totalExpenses >= 0 ? LIGHT_GREEN : LIGHT_RED, "📈")}
           </div>
+
+          {/* Machine breakdowns, reported by WhatsApp */}
+          {breakdowns.length > 0 && card(
+            <>
+              {sectionTitle("🛠", "Breakdowns")}
+              {[...breakdowns].reverse().slice(0, 6).map(b => {
+                const open = !b.repaired_at;
+                const from = new Date(b.reported_at);
+                const to = open ? new Date() : new Date(b.repaired_at);
+                const hrs = Math.max(0, (to - from) / 3600000);
+                const when = d => new Date(d).toLocaleString("en-GB", { timeZone: "Indian/Mauritius", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+                return (
+                  <div key={b.id} style={{ background: open ? LIGHT_RED : LIGHT_GREEN, border: `1px solid ${open ? RED : GREEN}`, borderRadius: 8, padding: "8px 12px", marginBottom: 8, fontSize: 13 }}>
+                    <div style={{ fontWeight: 600, color: open ? RED : GREEN }}>{open ? "Still down" : "Repaired"}: {b.reason}</div>
+                    <div style={{ color: "#555" }}>
+                      From {when(b.reported_at)}{open ? "" : ` to ${when(b.repaired_at)}`} · {hrs >= 24 ? `${(hrs / 24).toFixed(1)} days` : `${hrs.toFixed(1)} h`}{open ? " so far" : " down"}
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
 
           {/* RM Alerts */}
           {rmAlerts.length > 0 && card(
