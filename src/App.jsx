@@ -79,6 +79,17 @@ const PRODUCTS = [
   { code: "CB60TC", name: "Cobble Brick 60mm Terracota", priceEx: 9.50, priceInc: 10.93, rm: { OPC: 0.44, RS04: 1.82, AGG38: 0.99, BFTC: 0.015 } },
   { code: "CB60DG", name: "Cobble Brick 60mm Dark Grey", priceEx: 9.50, priceInc: 10.93, rm: { OPC: 0.44, RS04: 1.82, AGG38: 0.99, BFBL: 0.3125 } },
   { code: "CB60BN", name: "Cobble Brick 60mm Brown", priceEx: 9.50, priceInc: 10.93, rm: { OPC: 0.44, RS04: 1.82, AGG38: 0.99, BFBN: 0.015 } },
+  // Added Nov 2026 (bot price list). Raw material per piece estimated from similar products: check and adjust.
+  { code: "PB80LG", name: "Paving Brick 80mm Light Grey", priceEx: 14.35, priceInc: 16.50, rm: { OPC: 0.63, RS04: 2.55, AGG38: 1.39 } },
+  { code: "PS30LG", name: "Slab 300x300x60 Light Grey", priceEx: 69.57, priceInc: 80.01, rm: { OPC: 2.10, RS04: 8.58, AGG38: 4.71 } },
+  { code: "PS30DG", name: "Slab 300x300x60 Dark Grey", priceEx: 87.00, priceInc: 100.05, rm: { OPC: 2.10, RS04: 8.58, AGG38: 4.71, BFBL: 0.3125 } },
+  { code: "PS30RD", name: "Slab 300x300x60 Red", priceEx: 87.00, priceInc: 100.05, rm: { OPC: 2.10, RS04: 8.58, AGG38: 4.71, BFRD: 0.015 } },
+  { code: "PS30TC", name: "Slab 300x300x60 Terracota", priceEx: 87.00, priceInc: 100.05, rm: { OPC: 2.10, RS04: 8.58, AGG38: 4.71, BFTC: 0.015 } },
+  { code: "PS63LG", name: "Slab 600x300x60 Light Grey", priceEx: 126.09, priceInc: 145.00, rm: { OPC: 4.20, RS04: 17.16, AGG38: 9.42 } },
+  { code: "PS63DG", name: "Slab 600x300x60 Dark Grey", priceEx: 156.52, priceInc: 180.00, rm: { OPC: 4.20, RS04: 17.16, AGG38: 9.42, BFBL: 0.3125 } },
+  { code: "PS63RD", name: "Slab 600x300x60 Red", priceEx: 156.52, priceInc: 180.00, rm: { OPC: 4.20, RS04: 17.16, AGG38: 9.42, BFRD: 0.015 } },
+  { code: "PS63TC", name: "Slab 600x300x60 Terracota", priceEx: 156.52, priceInc: 180.00, rm: { OPC: 4.20, RS04: 17.16, AGG38: 9.42, BFTC: 0.015 } },
+  { code: "KB125LG", name: "Kerb 450x200x125 Light Grey", priceEx: 130.43, priceInc: 150.00, rm: { OPC: 4.37, RS04: 17.88, AGG38: 9.81 } },
   { code: "EV120", name: "Evergreen 400x400x120 Light Grey", priceEx: 81.00, priceInc: 93.15, rm: { OPC: 4.72, RS04: 19.31, AGG38: 10.60 } },
   { code: "EV120R", name: "Evergreen 400x400x120 Reject", priceEx: 60.00, priceInc: 69.00, rm: { OPC: 4.72, RS04: 19.31, AGG38: 10.60 } },
 ];
@@ -131,24 +142,44 @@ function App() {
 
   // ── Load from the database (table factory_data: one row per list) ──
   const [syncError, setSyncError] = useState("");
-  useEffect(() => {
-    async function load() {
-      const { data, error } = await supabase.from("factory_data").select("key,value");
-      if (error) { setSyncError(`Couldn't load the data: ${error.message}`); return; }
-      for (const row of data || []) {
-        const val = row.value;
-        if (val === null || val === undefined) continue;
-        if (row.key === "openingStock") setOpeningStock(val);
-        else if (row.key === "productionLog") setProductionLog(val);
-        else if (row.key === "salesLog") setSalesLog(val);
-        else if (row.key === "rmStock") setRmStock(val);
-        else if (row.key === "rmPurchases") setRmPurchases(val);
-        else if (row.key === "expenses") setExpenses(val);
-        else if (row.key === "incomes") setIncomes(val);
-      }
+  // Reloads everything (also picks up reports sent by WhatsApp) every 30 s and when the app comes back.
+  async function load() {
+    const { data, error } = await supabase.from("factory_data").select("key,value");
+    if (error) { setSyncError(`Couldn't load the data: ${error.message}`); return; }
+    for (const row of data || []) {
+      const val = row.value;
+      if (val === null || val === undefined) continue;
+      if (row.key === "openingStock") setOpeningStock(val);
+      else if (row.key === "productionLog") setProductionLog(val);
+      else if (row.key === "salesLog") setSalesLog(val);
+      else if (row.key === "rmStock") setRmStock(val);
+      else if (row.key === "rmPurchases") setRmPurchases(val);
+      else if (row.key === "expenses") setExpenses(val);
+      else if (row.key === "incomes") setIncomes(val);
     }
+  }
+  useEffect(() => {
     load();
-  }, []);
+    const t = setInterval(load, 30000);
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => { clearInterval(t); window.removeEventListener("focus", onFocus); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Adds one entry to a list using the latest copy in the database, so nothing sent meanwhile
+  // (e.g. by WhatsApp) is overwritten.
+  async function appendTo(key, entry, setter) {
+    const { data } = await supabase.from("factory_data").select("value").eq("key", key).maybeSingle();
+    const list = [...(Array.isArray(data?.value) ? data.value : []), entry];
+    setter(list);
+    await save(key, list);
+  }
+  async function setIn(key, field, value, setter) {
+    const { data } = await supabase.from("factory_data").select("value").eq("key", key).maybeSingle();
+    const obj = { ...(data?.value && typeof data.value === "object" && !Array.isArray(data.value) ? data.value : {}), [field]: value };
+    setter(obj);
+    await save(key, obj);
+  }
 
   async function save(key, val) {
     const { data: auth } = await supabase.auth.getSession();
@@ -173,13 +204,14 @@ function App() {
   }
 
   function getCurrentRM() {
+    // Opening (kg) + everything received − what production used (kg per piece × pieces)
     const rm = { ...INIT_RM(), ...rmStock };
-    // Deduct RM used in production
+    for (const e of rmPurchases) rm[e.code] = (rm[e.code] || 0) + Number(e.qty || 0);
     for (const e of productionLog) {
       const prod = PRODUCTS.find(p => p.code === e.code);
       if (!prod) continue;
       for (const [rmCode, kgPerUnit] of Object.entries(prod.rm)) {
-        rm[rmCode] = (rm[rmCode] || 0) - (kgPerUnit * Number(e.qty)) / 1000; // convert g to kg to tons? No — keep in kg
+        rm[rmCode] = (rm[rmCode] || 0) - kgPerUnit * Number(e.qty);
       }
     }
     return rm;
@@ -213,73 +245,54 @@ function App() {
   const [openingForm, setOpeningForm] = useState({ code: "", qty: "" });
   const [rmOpeningForm, setRmOpeningForm] = useState({ code: "OPC", qty: "", unit: "ton" });
 
-  function addProduction() {
+  async function addProduction() {
     if (!prodForm.code || !prodForm.qty) { notify("Fill all fields", "error"); return; }
-    const newLog = [...productionLog, { ...prodForm, id: Date.now() }];
-    setProductionLog(newLog); save("productionLog", newLog);
-    // Deduct RM
-    const prod = PRODUCTS.find(p => p.code === prodForm.code);
-    if (prod) {
-      const newRM = { ...INIT_RM(), ...rmStock };
-      for (const [rmCode, kgPerUnit] of Object.entries(prod.rm)) {
-        newRM[rmCode] = (newRM[rmCode] || 0) - (kgPerUnit * Number(prodForm.qty));
-      }
-      setRmStock(newRM); save("rmStock", newRM);
-    }
+    await appendTo("productionLog", { ...prodForm, id: Date.now() }, setProductionLog);
     setProdForm({ date: today(), code: "", qty: "" });
     notify(`✅ Production recorded!`);
   }
 
-  function addSale() {
+  async function addSale() {
     if (!saleForm.code || !saleForm.qty) { notify("Fill all fields", "error"); return; }
     if (Number(saleForm.qty) > (currentStock[saleForm.code] || 0)) { notify("❌ Not enough stock!", "error"); return; }
-    const newLog = [...salesLog, { ...saleForm, id: Date.now() }];
-    setSalesLog(newLog); save("salesLog", newLog);
+    await appendTo("salesLog", { ...saleForm, id: Date.now() }, setSalesLog);
     setSaleForm({ date: today(), code: "", qty: "" });
     notify(`✅ Sale recorded!`);
   }
 
-  function addRMPurchase() {
+  async function addRMPurchase() {
     if (!rmForm.qty) { notify("Enter quantity", "error"); return; }
     const kgQty = rmForm.unit === "ton" ? Number(rmForm.qty) * 1000 : Number(rmForm.qty);
-    const newRM = { ...INIT_RM(), ...rmStock };
-    newRM[rmForm.code] = (newRM[rmForm.code] || 0) + kgQty;
-    setRmStock(newRM); save("rmStock", newRM);
-    const newPurchases = [...rmPurchases, { ...rmForm, qty: kgQty, id: Date.now() }];
-    setRmPurchases(newPurchases); save("rmPurchases", newPurchases);
+    await appendTo("rmPurchases", { ...rmForm, qty: kgQty, unit: "kg", id: Date.now() }, setRmPurchases);
     setRmForm({ date: today(), code: "OPC", qty: "", unit: "ton" });
     notify(`✅ RM purchase recorded!`);
   }
 
-  function addExpense() {
+  async function addExpense() {
     if (!expForm.amount) { notify("Enter amount", "error"); return; }
-    const newExp = [...expenses, { ...expForm, id: Date.now() }];
-    setExpenses(newExp); save("expenses", newExp);
+    await appendTo("expenses", { ...expForm, id: Date.now() }, setExpenses);
     setExpForm({ date: today(), code: "EMPL", desc: "", amount: "" });
     notify(`✅ Expense recorded!`);
   }
 
-  function addIncome() {
+  async function addIncome() {
     if (!incForm.amount) { notify("Enter amount", "error"); return; }
-    const newInc = [...incomes, { ...incForm, id: Date.now() }];
-    setIncomes(newInc); save("incomes", newInc);
+    await appendTo("incomes", { ...incForm, id: Date.now() }, setIncomes);
     setIncForm({ date: today(), code: "SLI", desc: "", amount: "" });
     notify(`✅ Income recorded!`);
   }
 
-  function setOpening() {
+  async function setOpening() {
     if (!openingForm.code || !openingForm.qty) { notify("Fill all fields", "error"); return; }
-    const newOS = { ...openingStock, [openingForm.code]: Number(openingForm.qty) };
-    setOpeningStock(newOS); save("openingStock", newOS);
+    await setIn("openingStock", openingForm.code, Number(openingForm.qty), setOpeningStock);
     setOpeningForm({ code: "", qty: "" });
     notify(`✅ Opening stock set!`);
   }
 
-  function setRMOpening() {
+  async function setRMOpening() {
     if (!rmOpeningForm.qty) { notify("Enter quantity", "error"); return; }
     const kgQty = rmOpeningForm.unit === "ton" ? Number(rmOpeningForm.qty) * 1000 : Number(rmOpeningForm.qty);
-    const newRM = { ...INIT_RM(), ...rmStock, [rmOpeningForm.code]: kgQty };
-    setRmStock(newRM); save("rmStock", newRM);
+    await setIn("rmStock", rmOpeningForm.code, kgQty, setRmStock);
     setRmOpeningForm({ code: "OPC", qty: "", unit: "ton" });
     notify(`✅ RM opening stock set!`);
   }
