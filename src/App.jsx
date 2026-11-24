@@ -33,7 +33,7 @@ const RM_ALERTS = {
 const RM_NAMES = {
   OPC: "Cement 42.5",
   RS04: "Rock Sand 0.4",
-  AGG38: "Aggregate 3.8",
+  AGG38: "Chipping 4/6",
   PCE: "Pocket Cement",
   BFBL: "Bayferrous Black",
   BFRD: "Bayferrous Red",
